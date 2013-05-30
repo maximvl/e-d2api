@@ -1,0 +1,12 @@
+{application, d2api,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { d2api_app, []}},
+  {env, []}
+ ]}.
