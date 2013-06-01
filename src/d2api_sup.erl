@@ -17,12 +17,17 @@
 %% ===================================================================
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
-
+  Children = [?CHILD(X, permanent) || X <- [team_cache,
+                                            match_cache,
+                                            league_cache,
+                                            live_cache,
+                                            schedule_cache]],
+  ets:new(d2api_stat, [named_table, set, public]),
+  {ok, { {one_for_one, 5, 10}, Children} }.

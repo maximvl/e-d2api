@@ -137,12 +137,22 @@ code_change(_OldVsn, State, _Extra) ->
 do_cache(Mod, Ets, Id, MState) ->
   case Mod:fetch(Id, MState) of
     {ok, Data, Expire} ->
+      update_counter(Mod),
       ets:insert(Ets, new_cache_obj(Id, Data, Expire)),
       gen_server:cast(Mod, {cached, Id});
     Problem ->
       gen_server:cast(Mod, {not_cached, Id, Problem})
   end.
 
+update_counter(Mod) ->
+  Key = {Mod, date()},
+  case ets:insert_new(d2api_stat, {Key, 1}) of
+    true ->
+      ok;
+    _ ->
+      ets:update_counter(d2api_stat, Key, {2, 1})
+  end.
+        
 -spec new_cache_obj(integer(), term(), daystime()) -> #cache_obj{}.
 new_cache_obj(Id, Obj, Expire) ->
   #cache_obj{id = Id,

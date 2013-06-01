@@ -19,7 +19,7 @@ init() ->
   {ok, Key}.
 
 verify_id({Start, Num}) when 
-    is_integer(Id)  andalso Id > 0 andalso
+    is_integer(Start)  andalso Start > 0 andalso
     is_integer(Num) andalso Num > 0 ->
   ok;
 
