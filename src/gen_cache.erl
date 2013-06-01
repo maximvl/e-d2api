@@ -11,10 +11,11 @@
 -behaviour(gen_server).
 
 -callback init() -> {ok, term()}.
--callback fetch(integer(), term()) -> {term(), daystime()}.
+-callback verify_id(term()) -> ok | badarg.
+-callback fetch(integer(), term()) -> {ok, term(), daystime()} | term().
 
 %% API
--export([start_link/1, get_item/2, process_fetch/5]).
+-export([start_link/1, get_object/2, do_cache/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -25,7 +26,6 @@
                 in_progress = dict:new() :: dict()}).
 
 -define(SECS_IN_DAY, 86400).
--define(DONE_MSG(X), {retry, X}).
 
 -type daystime() :: {integer(), calendar:time()}.
 
@@ -41,26 +41,37 @@
 start_link(Mod) ->
   gen_server:start_link({local, Mod}, ?MODULE, [Mod], []).
 
-get_item(Mod, Id) ->
+-spec get_object(atom(), term()) -> term() | {error, term()}.
+get_object(Mod, Id) ->
+  get_object(Mod, Id, Mod:verify_id(Id)).
+
+-spec get_object(atom(), term(), ok | badarg) -> term() | {error, term()}.
+get_object(Mod, Id, ok) ->
   Ets = Mod,
   case ets:lookup(Ets, Id) of
-    [C] ->
-      case is_expired(C) of
+    [O] ->
+      case is_expired(O) of
         false ->
-          C;
+          O#cache_obj.value;
         _ ->
-          fetch_item(Mod, Ets, Id)
+          cache_object(Mod, Ets, Id)
       end;
     [] ->
-      fetch_item(Mod, Ets, Id)
-  end.
+      cache_object(Mod, Ets, Id)
+  end;
 
-fetch_item(Mod, Ets, Id) ->
-  gen_server:call(Mod, {fetch, Id}),
+get_object(Mod, Id, badarg) ->
+  {badarg, Mod, Id}.
+
+-spec cache_object(atom(), atom(), term()) -> term() | {error, term()}.
+cache_object(Mod, Ets, Id) ->
+  gen_server:cast(Mod, {cache, self(), Id}),
   receive
-    {retry, Id} ->
-      [C] = ets:lookup(Ets, Id),
-      C
+    {cached, Id} ->
+      [O] = ets:lookup(Ets, Id),
+      O;
+    X ->
+      {error, X}
   end.
 
 %%%===================================================================
@@ -75,7 +86,10 @@ init([Mod]) ->
   {ok, #state{mod = Mod,
               mod_state = MState}}.
 
-handle_call({fetch, Id}, {ReplyTo, _}, State) ->
+handle_call(_Req, _From, State) ->
+  {reply, ok, State}.
+
+handle_cast({cache, ReplyTo, Id}, State) ->
   InProgress = State#state.in_progress,
   NewDict = case dict:is_key(Id, InProgress) of
               true ->
@@ -84,18 +98,22 @@ handle_call({fetch, Id}, {ReplyTo, _}, State) ->
                 Mod = State#state.mod,
                 Ets = Mod,
                 MState = State#state.mod_state,
-                spawn(?MODULE, process_fetch, [Mod, Ets, Id, ReplyTo, MState]),
+                spawn(?MODULE, do_cache, [Mod, Ets, Id, MState]),
                 dict:store(Id, [ReplyTo], InProgress)
             end,
-  {reply, wait, State#state{in_progress = NewDict}};
+  {noreply, State#state{in_progress = NewDict}};
 
-handle_call(_Req, _From, State) ->
-  {reply, ok, State}.
-
-handle_cast({fetched, Id}, State) ->
+handle_cast({cached, Id} = Msg, State) ->
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
-  [W ! ?DONE_MSG(Id) || W <- Waiters],
+  [W ! Msg || W <- Waiters],
+  NewDict = dict:erase(Id, InProgress),
+  {noreply, State#state{in_progress = NewDict}};
+
+handle_cast({not_cached, Id, _} = Msg, State) ->
+  InProgress = State#state.in_progress,
+  Waiters = dict:fetch(Id, InProgress),
+  [W !  Msg || W <- Waiters],
   NewDict = dict:erase(Id, InProgress),
   {noreply, State#state{in_progress = NewDict}};
 
@@ -115,10 +133,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-process_fetch(Mod, Ets, Id, _ReplyTo, MState) ->
-  {Data, Expire} = Mod:fetch(Id, MState),
-  ets:insert(Ets, new_cache_obj(Id, Data, Expire)),
-  gen_server:cast(Mod, {fetched, Id}).
+-spec do_cache(atom(), atom(), term(), term()) -> ok.
+do_cache(Mod, Ets, Id, MState) ->
+  case Mod:fetch(Id, MState) of
+    {ok, Data, Expire} ->
+      ets:insert(Ets, new_cache_obj(Id, Data, Expire)),
+      gen_server:cast(Mod, {cached, Id});
+    Problem ->
+      gen_server:cast(Mod, {not_cached, Id, Problem})
+  end.
 
 -spec new_cache_obj(integer(), term(), daystime()) -> #cache_obj{}.
 new_cache_obj(Id, Obj, Expire) ->

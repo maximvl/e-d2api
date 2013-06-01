@@ -10,7 +10,7 @@
 
 -behaviour(gen_cache).
 
--export([init/0, fetch/2]).
+-export([init/0, verify_id/1, fetch/2]).
 
 -define(EXPIRE, {0,{0,30,0}}).
 
@@ -18,16 +18,21 @@ init() ->
   Key = application:get_env(api_key_schedule),
   {ok, Key}.
 
+verify_id({Min, Max}) when
+    is_integer(Min) andalso Min > 0 andalso
+    is_integer(Max) andalso Max > 0 ->
+  ok;
+
+verify_id(_) ->
+  badarg.
+
 fetch(Id, Key) ->
   Link = gen_link(Id, Key),
   {ok, {200, Body}} = httpc:request(get, Link, [], [{body_format, binary},
                                                     {full_request, false}]),
   Games = mochijson2:decode(Body),
-  {Games, ?EXPIRE}.
+  {ok, Games, ?EXPIRE}.
 
-gen_link(_Id, Key) ->
-  {Mg, S, Mc} = now(),
-  StartTime = calendar:now_to_universal_time(now()),
-  %%EndTime = calendar:now_to_universal_time(
+gen_link({MinDate, MaxDate}, Key) ->
   "http://api.steampowered.com/IDOTA2Match_570/GetScheduledLeagueGames/v1?key=" ++
-    Key ++ "&date_min=" ++ StartTime.
+    Key ++ "&date_min=" ++ MinDate ++ "&date_max=" ++ MaxDate. 
