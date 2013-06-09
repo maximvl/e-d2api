@@ -10,24 +10,20 @@
 
 -behaviour(gen_server).
 
--callback init() -> {ok, term()}.
--callback verify_id(term()) -> ok | badarg.
--callback fetch(integer(), term()) -> {ok, term(), daystime()} | term().
-
 %% API
--export([start_link/1, get_object/2, do_cache/4]).
+-export([start_link/2, get_object/2, maybe_do_cache/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {mod :: atom(),
-                mod_state :: atom(),
-                in_progress = dict:new() :: dict()}).
-
 -define(SECS_IN_DAY, 86400).
 
 -type daystime() :: {integer(), calendar:time()}.
+
+-record(state, {ets :: atom(),
+                link_fun :: fun((integer() | tuple()) -> {ok, string(), daystime()} | badarg),
+                in_progress = dict:new() :: dict()}).
 
 -record(cache_obj, {id :: integer(),
                     value :: term(),
@@ -38,16 +34,12 @@
 %%% API
 %%%===================================================================
 
-start_link(Mod) ->
-  error_logger:info_report([{"starting cache", Mod}]),
-  gen_server:start_link({local, Mod}, ?MODULE, [Mod], []).
+start_link(Name, Fun) ->
+  error_logger:info_report([{"starting cache", Name}]),
+  gen_server:start_link({local, Name}, ?MODULE, [Name, Fun], []).
 
 -spec get_object(atom(), term()) -> term() | {error, term()}.
 get_object(Mod, Id) ->
-  get_object(Mod, Id, Mod:verify_id(Id)).
-
--spec get_object(atom(), term(), ok | badarg) -> term() | {badarg, term()}.
-get_object(Mod, Id, ok) ->
   Ets = Mod,
   case ets:lookup(Ets, Id) of
     [O] ->
@@ -59,10 +51,7 @@ get_object(Mod, Id, ok) ->
       end;
     [] ->
       cache_object(Mod, Ets, Id)
-  end;
-
-get_object(Mod, Id, badarg) ->
-  {badarg, Mod, Id}.
+  end.
 
 -spec cache_object(atom(), atom(), term()) -> term() | {error, term()}.
 cache_object(Mod, Ets, Id) ->
@@ -79,13 +68,12 @@ cache_object(Mod, Ets, Id) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Mod]) ->
-  {ok, MState} = Mod:init(),
-  ets:new(Mod, [set, named_table,
+init([Name, Fun]) ->
+  ets:new(Name, [set, named_table,
                 {keypos, #cache_obj.id},
                 {read_concurrency, true}]),
-  {ok, #state{mod = Mod,
-              mod_state = MState}}.
+  {ok, #state{ets = Name,
+              link_fun = Fun}}.
 
 handle_call(_Req, _From, State) ->
   {reply, ok, State}.
@@ -96,20 +84,18 @@ handle_cast({cache, ReplyTo, Id}, State) ->
               true ->
                 dict:append(Id, ReplyTo);
               false ->
-                Mod = State#state.mod,
-                Ets = Mod,
-                MState = State#state.mod_state,
-                spawn(?MODULE, do_cache, [Mod, Ets, Id, MState]),
+                LinkFun = State#state.link_fun,
+                Ets = State#state.ets,
+                spawn(?MODULE, maybe_do_cache, [LinkFun, Ets, Id]),
 
                 error_logger:info_report("spawned"),
-                
                 dict:store(Id, [ReplyTo], InProgress)
             end,
   {noreply, State#state{in_progress = NewDict}};
 
 handle_cast({cached, Id} = Msg, State) ->
   error_logger:info_report("cached"),
-  
+
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W ! Msg || W <- Waiters],
@@ -139,17 +125,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
--spec do_cache(atom(), atom(), term(), term()) -> ok.
-do_cache(Mod, Ets, Id, MState) ->
-  case Mod:fetch(Id, MState) of
-    {ok, Data, Expire} ->
-      
-      error_logger:info_report("fetched"),
+-spec maybe_do_cache(atom(), atom(), term()) -> ok.
+maybe_do_cache(LinkFun, Mod, Id) ->
+  case LinkFun(Id) of
+    {ok, Link, Expire} ->
       update_counter(Mod),
-      ets:insert(Ets, new_cache_obj(Id, Data, Expire)),
-      gen_server:cast(Mod, {cached, Id});
-    Problem ->
-      gen_server:cast(Mod, {not_cached, Id, Problem})
+      Fetch = httpc:request(get, {Link, []}, [],
+                            [{body_format, binary},
+                             {full_result, false}]),
+      case Fetch of
+        {ok, {200, Data}} ->
+          ets:insert(Mod, new_cache_obj(Id, Data, Expire)),
+          gen_server:cast(Mod, {cached, Id});
+        {ok, {Status, _}} ->
+          gen_server:cast(Mod, {not_cached, Id, {http_status, Status}});
+        Problem ->
+          gen_server:cast(Mod, {not_cached, Id, Problem})
+      end;
+    badarg ->
+      gen_server:cast(Mod, {not_cached, {badarg, Mod, Id}})
   end.
 
 update_counter(Mod) ->
@@ -160,7 +154,7 @@ update_counter(Mod) ->
     _ ->
       ets:update_counter(d2api_stat, Key, {2, 1})
   end.
-        
+
 -spec new_cache_obj(integer(), term(), daystime()) -> #cache_obj{}.
 new_cache_obj(Id, Obj, Expire) ->
   #cache_obj{id = Id,
