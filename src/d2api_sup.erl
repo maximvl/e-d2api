@@ -1,7 +1,8 @@
-
 -module(d2api_sup).
 
 -behaviour(supervisor).
+
+-include("d2api.hrl").
 
 %% API
 -export([start_link/0]).
@@ -10,7 +11,8 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define(CHILD(I, Type, Name, Fun),
+        {Name, {I, start_link, [Name, Fun]}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
@@ -24,8 +26,12 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-  Caches = [team_cache, match_cache,
-            league_cache, live_cache, schedule_cache],
-  Children = [?CHILD(X, worker) || X <- Caches],
+  Caches = [{?TEAMS_CACHE,           fun api_link:teams/1},
+            {?MATCH_CACHE,           fun api_link:match/1},
+            {?LEAGUES_CACHE,         fun api_link:leagues/1},
+            {?LIVE_GAMES_CACHE,      fun api_link:live_games/1},
+            {?SCHEDULED_GAMES_CACHE, fun api_link:scheduled_games/1}],
+  
+  Children = [?CHILD(gen_cache, worker, Name, Fun) || {Name, Fun} <- Caches],
   ets:new(d2api_stat, [named_table, set, public]),
   {ok, { {one_for_one, 5, 10}, Children} }.

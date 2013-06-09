@@ -103,6 +103,8 @@ handle_cast({cached, Id} = Msg, State) ->
   {noreply, State#state{in_progress = NewDict}};
 
 handle_cast({not_cached, Id, Msg}, State) ->
+  error_logger:info_report("not cached"),
+  
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W !  Msg || W <- Waiters],
@@ -133,6 +135,7 @@ maybe_do_cache(LinkFun, Mod, Id) ->
       Fetch = httpc:request(get, {Link, []}, [],
                             [{body_format, binary},
                              {full_result, false}]),
+      error_logger:info_report("requested"),
       case Fetch of
         {ok, {200, Data}} ->
           ets:insert(Mod, new_cache_obj(Id, Data, Expire)),
@@ -143,7 +146,8 @@ maybe_do_cache(LinkFun, Mod, Id) ->
           gen_server:cast(Mod, {not_cached, Id, Problem})
       end;
     badarg ->
-      gen_server:cast(Mod, {not_cached, {badarg, Mod, Id}})
+      error_logger:info_report("badarger"),
+      gen_server:cast(Mod, {not_cached, Id, {badarg, Mod, Id}})
   end.
 
 update_counter(Mod) ->
