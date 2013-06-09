@@ -39,13 +39,14 @@
 %%%===================================================================
 
 start_link(Mod) ->
+  error_logger:info_report([{"starting cache", Mod}]),
   gen_server:start_link({local, Mod}, ?MODULE, [Mod], []).
 
 -spec get_object(atom(), term()) -> term() | {error, term()}.
 get_object(Mod, Id) ->
   get_object(Mod, Id, Mod:verify_id(Id)).
 
--spec get_object(atom(), term(), ok | badarg) -> term() | {error, term()}.
+-spec get_object(atom(), term(), ok | badarg) -> term() | {badarg, term()}.
 get_object(Mod, Id, ok) ->
   Ets = Mod,
   case ets:lookup(Ets, Id) of
@@ -80,7 +81,7 @@ cache_object(Mod, Ets, Id) ->
 
 init([Mod]) ->
   {ok, MState} = Mod:init(),
-  ets:new(Mod, [set, named,
+  ets:new(Mod, [set, named_table,
                 {keypos, #cache_obj.id},
                 {read_concurrency, true}]),
   {ok, #state{mod = Mod,
@@ -99,18 +100,23 @@ handle_cast({cache, ReplyTo, Id}, State) ->
                 Ets = Mod,
                 MState = State#state.mod_state,
                 spawn(?MODULE, do_cache, [Mod, Ets, Id, MState]),
+
+                error_logger:info_report("spawned"),
+                
                 dict:store(Id, [ReplyTo], InProgress)
             end,
   {noreply, State#state{in_progress = NewDict}};
 
 handle_cast({cached, Id} = Msg, State) ->
+  error_logger:info_report("cached"),
+  
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W ! Msg || W <- Waiters],
   NewDict = dict:erase(Id, InProgress),
   {noreply, State#state{in_progress = NewDict}};
 
-handle_cast({not_cached, Id, _} = Msg, State) ->
+handle_cast({not_cached, Id, Msg}, State) ->
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W !  Msg || W <- Waiters],
@@ -137,6 +143,8 @@ code_change(_OldVsn, State, _Extra) ->
 do_cache(Mod, Ets, Id, MState) ->
   case Mod:fetch(Id, MState) of
     {ok, Data, Expire} ->
+      
+      error_logger:info_report("fetched"),
       update_counter(Mod),
       ets:insert(Ets, new_cache_obj(Id, Data, Expire)),
       gen_server:cast(Mod, {cached, Id});

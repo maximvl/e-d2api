@@ -10,20 +10,33 @@
 
 -behaviour(gen_cache).
 
--export([init/0, fetch/2]).
+-export([start_link/0]).
+-export([init/0, verify_id/1, fetch/2]).
 
 -define(EXPIRE, {0,{0,30,0}}).
 
+-include("d2api.hrl").
+
+start_link() ->
+  gen_cache:start_link(?MODULE).
+
 init() ->
-  Key = application:get_env(api_key_live),
+  {ok, Key} = d2api:get_api_key(?LIVE_API_KEY),
   {ok, Key}.
+
+verify_id(_) ->
+  ok.
 
 fetch(Id, Key) ->
   Link = gen_link(Id, Key),
-  {ok, {200, Body}} = httpc:request(get, Link, [], [{body_format, binary},
-                                                    {full_request, false}]),
-  Games = mochijson2:decode(Body),
-  {Games, ?EXPIRE}.
+  {ok, {Status, Body}} = httpc:request(get, Link, [], [{body_format, binary},
+                                                       {full_request, false}]),
+  case Status of
+    200 ->
+      {ok, Body, ?EXPIRE};
+    _ ->
+      {http_status, Status}
+  end.
 
 gen_link(_Id, Key) ->
   "http://api.steampowered.com/IDOTA2Match_570/GetLiveLeagueGames/v1?key=" ++ Key.

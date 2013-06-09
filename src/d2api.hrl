@@ -1,0 +1,5 @@
+-define(TEAM_API_KEY, team_api_key).
+-define(MATCH_API_KEY, match_api_key).
+-define(LEAGUE_API_KEY, league_api_key).
+-define(LIVE_API_KEY, live_api_key).
+-define(SCHEDULE_API_KEY, schedule_api_key).

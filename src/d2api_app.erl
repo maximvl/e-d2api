@@ -10,7 +10,8 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    d2api_sup:start_link().
+  application:start(itens),
+  d2api_sup:start_link().
 
 stop(_State) ->
-    ok.
+  ok.

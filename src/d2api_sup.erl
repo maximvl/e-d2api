@@ -24,10 +24,8 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-  Children = [?CHILD(X, permanent) || X <- [team_cache,
-                                            match_cache,
-                                            league_cache,
-                                            live_cache,
-                                            schedule_cache]],
+  Caches = [team_cache, match_cache,
+            league_cache, live_cache, schedule_cache],
+  Children = [?CHILD(X, worker) || X <- Caches],
   ets:new(d2api_stat, [named_table, set, public]),
   {ok, { {one_for_one, 5, 10}, Children} }.
