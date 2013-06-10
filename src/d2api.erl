@@ -28,20 +28,36 @@ set_api_key(Key) ->
 get_api_key(Unit) ->
   application:get_env(d2api, Unit).
 
-teams(Start, Num) ->
-  gen_cache:get_object(?TEAMS_CACHE, {Start, Num}).
+-spec teams(string(), string()) -> {ok, binary()} | badarg.
+teams(Start, Num) when
+    is_list(Start) andalso is_list(Num) ->
+  gen_cache:get_object(?TEAMS_CACHE, {Start, Num});
 
-match(Id) ->
-  gen_cache:get_object(?MATCH_CACHE, Id).
+teams(_, _) ->
+  badarg.
 
+-spec match(string()) -> {ok, binary()} | badarg.
+match(Id) when is_list(Id) ->
+  gen_cache:get_object(?MATCH_CACHE, Id);
+
+match(_) ->
+  badarg.
+
+-spec leagues() -> {ok, binary()}.
 leagues() ->
   gen_cache:get_object(?LEAGUES_CACHE, none).
 
+-spec live_games() -> {ok, binary()}.
 live_games() ->
   gen_cache:get_object(?LIVE_GAMES_CACHE, none).
 
-scheduled_games(From, To) ->
-  gen_cache:get_object(?SCHEDULED_GAMES_CACHE, {From, To}).
+-spec scheduled_games(string(), string()) -> {ok, binary()} | badarg.
+scheduled_games(From, To) when
+    is_list(From) andalso is_list(To) ->
+  gen_cache:get_object(?SCHEDULED_GAMES_CACHE, {From, To});
+
+scheduled_games(_, _) ->
+  badarg.
 
 player(Id) ->
   gen_cache:get_object(player, Id).

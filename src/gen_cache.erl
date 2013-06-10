@@ -22,11 +22,11 @@
 -type daystime() :: {integer(), calendar:time()}.
 
 -record(state, {ets :: atom(),
-                link_fun :: fun((integer() | tuple()) -> {ok, string(), daystime()} | badarg),
+                link_fun :: fun((integer() | tuple()) -> {string(), daystime()}),
                 in_progress = dict:new() :: dict()}).
 
 -record(cache_obj, {id :: integer(),
-                    value :: term(),
+                    value :: binary(),
                     expire :: calendar:datetime()
                    }).
 
@@ -38,7 +38,7 @@ start_link(Name, Fun) ->
   error_logger:info_report([{"starting cache", Name}]),
   gen_server:start_link({local, Name}, ?MODULE, [Name, Fun], []).
 
--spec get_object(atom(), term()) -> {ok, term()} | {error, term()}.
+-spec get_object(atom(), term()) -> {ok, binary()} | {error, term()}.
 get_object(Mod, Id) ->
   Ets = Mod,
   case ets:lookup(Ets, Id) of
@@ -53,13 +53,13 @@ get_object(Mod, Id) ->
       cache_object(Mod, Ets, Id)
   end.
 
--spec cache_object(atom(), atom(), term()) -> {ok, term()} | {error, term()}.
+-spec cache_object(atom(), atom(), term()) -> {ok, binary()} | {error, term()}.
 cache_object(Mod, Ets, Id) ->
   gen_server:cast(Mod, {cache, self(), Id}),
   receive
     {cached, Id} ->
       [O] = ets:lookup(Ets, Id),
-      {ok, O};
+      {ok, O#cache_obj.value};
     X ->
       {error, X}
   end.
@@ -123,23 +123,19 @@ code_change(_OldVsn, State, _Extra) ->
 
 -spec maybe_do_cache(atom(), atom(), term()) -> ok.
 maybe_do_cache(LinkFun, Mod, Id) ->
-  case LinkFun(Id) of
-    {ok, Link, Expire} ->
-      update_counter(Mod),
-      Fetch = httpc:request(get, {Link, []}, [],
-                            [{body_format, binary},
-                             {full_result, false}]),
-      case Fetch of
-        {ok, {200, Data}} ->
-          ets:insert(Mod, new_cache_obj(Id, Data, Expire)),
-          gen_server:cast(Mod, {cached, Id});
-        {ok, {Status, _}} ->
-          gen_server:cast(Mod, {not_cached, Id, {http_status, Status}});
-        Problem ->
-          gen_server:cast(Mod, {not_cached, Id, Problem})
-      end;
-    badarg ->
-      gen_server:cast(Mod, {not_cached, Id, {badarg, Mod, Id}})
+  {Link, Expire} = LinkFun(Id),
+  update_counter(Mod),
+  Fetch = httpc:request(get, {Link, []}, [],
+                        [{body_format, binary},
+                         {full_result, false}]),
+  case Fetch of
+    {ok, {200, Data}} ->
+      ets:insert(Mod, new_cache_obj(Id, Data, Expire)),
+      gen_server:cast(Mod, {cached, Id});
+    {ok, {Status, _}} ->
+      gen_server:cast(Mod, {not_cached, Id, {http_status, Status}});
+    Problem ->
+      gen_server:cast(Mod, {not_cached, Id, Problem})
   end.
 
 update_counter(Mod) ->
