@@ -9,6 +9,8 @@
 -module(d2api).
 -include("d2api.hrl").
 
+-export([start/0]).
+
 -export([set_api_key/1,
          get_api_key/1]).
 
@@ -18,6 +20,11 @@
          get_leagues/0,
          get_live/0,
          get_schedule/1]).
+
+start() ->
+  set_api_key("123"),
+  application:start(d2api),
+  d2api:get_team({"12345", "2"}).
 
 set_api_key(Key) ->
   [application:set_env(d2api, X, Key) ||
