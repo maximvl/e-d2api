@@ -38,14 +38,14 @@ start_link(Name, Fun) ->
   error_logger:info_report([{"starting cache", Name}]),
   gen_server:start_link({local, Name}, ?MODULE, [Name, Fun], []).
 
--spec get_object(atom(), term()) -> term() | {error, term()}.
+-spec get_object(atom(), term()) -> {ok, term()} | {error, term()}.
 get_object(Mod, Id) ->
   Ets = Mod,
   case ets:lookup(Ets, Id) of
     [O] ->
       case is_expired(O) of
         false ->
-          O#cache_obj.value;
+          {ok, O#cache_obj.value};
         _ ->
           cache_object(Mod, Ets, Id)
       end;
@@ -53,13 +53,13 @@ get_object(Mod, Id) ->
       cache_object(Mod, Ets, Id)
   end.
 
--spec cache_object(atom(), atom(), term()) -> term() | {error, term()}.
+-spec cache_object(atom(), atom(), term()) -> {ok, term()} | {error, term()}.
 cache_object(Mod, Ets, Id) ->
   gen_server:cast(Mod, {cache, self(), Id}),
   receive
     {cached, Id} ->
       [O] = ets:lookup(Ets, Id),
-      O;
+      {ok, O};
     X ->
       {error, X}
   end.
@@ -69,7 +69,7 @@ cache_object(Mod, Ets, Id) ->
 %%%===================================================================
 
 init([Name, Fun]) ->
-  ets:new(Name, [set, named_table,
+  ets:new(Name, [set, named_table, public,
                 {keypos, #cache_obj.id},
                 {read_concurrency, true}]),
   {ok, #state{ets = Name,
@@ -87,15 +87,11 @@ handle_cast({cache, ReplyTo, Id}, State) ->
                 LinkFun = State#state.link_fun,
                 Ets = State#state.ets,
                 spawn(?MODULE, maybe_do_cache, [LinkFun, Ets, Id]),
-
-                error_logger:info_report("spawned"),
                 dict:store(Id, [ReplyTo], InProgress)
             end,
   {noreply, State#state{in_progress = NewDict}};
 
 handle_cast({cached, Id} = Msg, State) ->
-  error_logger:info_report("cached"),
-
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W ! Msg || W <- Waiters],
@@ -103,8 +99,6 @@ handle_cast({cached, Id} = Msg, State) ->
   {noreply, State#state{in_progress = NewDict}};
 
 handle_cast({not_cached, Id, Msg}, State) ->
-  error_logger:info_report("not cached"),
-  
   InProgress = State#state.in_progress,
   Waiters = dict:fetch(Id, InProgress),
   [W !  Msg || W <- Waiters],
@@ -135,7 +129,6 @@ maybe_do_cache(LinkFun, Mod, Id) ->
       Fetch = httpc:request(get, {Link, []}, [],
                             [{body_format, binary},
                              {full_result, false}]),
-      error_logger:info_report("requested"),
       case Fetch of
         {ok, {200, Data}} ->
           ets:insert(Mod, new_cache_obj(Id, Data, Expire)),
@@ -146,7 +139,6 @@ maybe_do_cache(LinkFun, Mod, Id) ->
           gen_server:cast(Mod, {not_cached, Id, Problem})
       end;
     badarg ->
-      error_logger:info_report("badarger"),
       gen_server:cast(Mod, {not_cached, Id, {badarg, Mod, Id}})
   end.
 
@@ -159,7 +151,7 @@ update_counter(Mod) ->
       ets:update_counter(d2api_stat, Key, {2, 1})
   end.
 
--spec new_cache_obj(integer(), term(), daystime()) -> #cache_obj{}.
+-spec new_cache_obj(any(), term(), daystime()) -> #cache_obj{}.
 new_cache_obj(Id, Obj, Expire) ->
   #cache_obj{id = Id,
              value = Obj,
@@ -167,7 +159,7 @@ new_cache_obj(Id, Obj, Expire) ->
 
 -spec is_expired(calendar:datetime()) -> boolean().
 is_expired(Obj) when is_record(Obj, cache_obj) ->
-  Obj#cache_obj.expire > calendar:universal_time();
+  Obj#cache_obj.expire < calendar:universal_time();
 
 is_expired(_) ->
   false.

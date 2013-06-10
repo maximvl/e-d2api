@@ -9,22 +9,15 @@
 -module(d2api).
 -include("d2api.hrl").
 
--export([start/0]).
-
 -export([set_api_key/1,
          get_api_key/1]).
 
--export([get_player/1,
-         get_team/1,
-         get_match/1,
-         get_leagues/0,
-         get_live/0,
-         get_schedule/1]).
-
-start() ->
-  set_api_key("123"),
-  application:start(d2api),
-  d2api:get_team({"12345", "2"}).
+-export([player/1,
+         teams/2,
+         match/1,
+         leagues/0,
+         live_games/0,
+         scheduled_games/2]).
 
 set_api_key(Key) ->
   [application:set_env(d2api, X, Key) ||
@@ -35,22 +28,22 @@ set_api_key(Key) ->
 get_api_key(Unit) ->
   application:get_env(d2api, Unit).
 
-get_team(Id) ->
-  gen_cache:get_object(?TEAMS_CACHE, Id).
+teams(Start, Num) ->
+  gen_cache:get_object(?TEAMS_CACHE, {Start, Num}).
 
-get_match(Id) ->
+match(Id) ->
   gen_cache:get_object(?MATCH_CACHE, Id).
 
-get_leagues() ->
+leagues() ->
   gen_cache:get_object(?LEAGUES_CACHE, none).
 
-get_live() ->
+live_games() ->
   gen_cache:get_object(?LIVE_GAMES_CACHE, none).
 
-get_schedule(Id) ->
-  gen_cache:get_object(?SCHEDULED_GAMES_CACHE, Id).
+scheduled_games(From, To) ->
+  gen_cache:get_object(?SCHEDULED_GAMES_CACHE, {From, To}).
 
-get_player(Id) ->
+player(Id) ->
   gen_cache:get_object(player, Id).
 
 %%%===================================================================
