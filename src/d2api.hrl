@@ -17,3 +17,5 @@
 -define(SCHEDULED_GAMES_CACHE,  scheduled_games_cache).
 -define(SCHEDULED_GAMES_KEY,    scheduled_games_key).
 -define(SCHEDULED_GAMES_EXPIRE, schedule_games_expire).
+
+-define(STAT_ETS, d2api_stats).

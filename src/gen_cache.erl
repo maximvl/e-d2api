@@ -30,6 +30,8 @@
                     expire :: calendar:datetime()
                    }).
 
+-include("d2api.hrl").
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -124,7 +126,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec maybe_do_cache(atom(), atom(), term()) -> ok.
 maybe_do_cache(LinkFun, Mod, Id) ->
   {Link, Expire} = LinkFun(Id),
-  update_counter(Mod),
+  d2api_stats:update_stat(Mod),
   Fetch = httpc:request(get, {Link, []}, [],
                         [{body_format, binary},
                          {full_result, false}]),
@@ -136,15 +138,6 @@ maybe_do_cache(LinkFun, Mod, Id) ->
       gen_server:cast(Mod, {not_cached, Id, {http_status, Status}});
     Problem ->
       gen_server:cast(Mod, {not_cached, Id, Problem})
-  end.
-
-update_counter(Mod) ->
-  Key = {Mod, date()},
-  case ets:insert_new(d2api_stat, {Key, 1}) of
-    true ->
-      ok;
-    _ ->
-      ets:update_counter(d2api_stat, Key, {2, 1})
   end.
 
 -spec new_cache_obj(any(), term(), daystime()) -> #cache_obj{}.

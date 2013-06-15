@@ -33,5 +33,5 @@ init([]) ->
             {?SCHEDULED_GAMES_CACHE, fun api_link:scheduled_games/1}],
   
   Children = [?CHILD(gen_cache, worker, Name, Fun) || {Name, Fun} <- Caches],
-  ets:new(d2api_stat, [named_table, set, public]),
+  d2api_stats:start(),
   {ok, { {one_for_one, 5, 10}, Children} }.
