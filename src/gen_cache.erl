@@ -18,6 +18,7 @@
          terminate/2, code_change/3]).
 
 -define(SECS_IN_DAY, 86400).
+-define(TIMEOUT, 2000).                         % miliseconds
 
 -type daystime() :: {integer(), calendar:time()}.
 
@@ -127,7 +128,7 @@ code_change(_OldVsn, State, _Extra) ->
 maybe_do_cache(LinkFun, Mod, Id) ->
   {Link, Expire} = LinkFun(Id),
   d2api_stats:update_stat(Mod),
-  Fetch = httpc:request(get, {Link, []}, [],
+  Fetch = httpc:request(get, {Link, []}, [{timeout, ?TIMEOUT}],
                         [{body_format, binary},
                          {full_result, false}]),
   case Fetch of
