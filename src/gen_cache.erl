@@ -85,7 +85,7 @@ handle_cast({cache, ReplyTo, Id}, State) ->
   InProgress = State#state.in_progress,
   NewDict = case dict:is_key(Id, InProgress) of
               true ->
-                dict:append(Id, ReplyTo);
+                dict:append(Id, ReplyTo, InProgress);
               false ->
                 LinkFun = State#state.link_fun,
                 Ets = State#state.ets,
